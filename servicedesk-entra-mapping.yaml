@@ -1,0 +1,286 @@
+schema_version: "1.0"
+mapping_name: sdp_to_entra
+
+source:
+  system: servicedesk_plus
+  root_object: request
+
+  fields:
+    request_for: "request.udf_fields.request_for"
+    status: "request.status.name"
+    technician: "request.technician.email_id"
+
+    first_name: "request.udf_fields.first_name"
+    middle_name: "request.udf_fields.middle_name"
+    last_name: "request.udf_fields.last_name"
+
+    group: "request.group.name"
+
+    grade: "request.udf_fields.grade"
+    designation: "request.udf_fields.designation"
+
+    department_name: "request.department.name"
+    department_head: "request.udf_fields.department_head"
+
+    reporting_manager: "request.udf_fields.reporting_manager"
+
+    staff_no: "request.udf_fields.staff_no"
+
+    roles_and_responsibility: "request.udf_fields.roles_and_responsibility"
+
+    phone_number: "request.udf_fields.phone_number"
+    mobile_phone: "request.udf_fields.mobile_phone"
+
+    company_name: "request.udf_fields.company_name"
+    location: "request.site.name"
+
+    company_address: "request.udf_fields.company_address"
+
+    city: "request.udf_fields.city"
+    state_or_province: "request.udf_fields.state_or_province"
+    postal_code: "request.udf_fields.postal_code"
+    country_or_region: "request.udf_fields.country_or_region"
+
+    employee_type: "request.udf_fields.employee_type"
+    employee_hire_date: "request.udf_fields.employee_hire_date"
+
+    other_mails: "request.udf_fields.other_mails"
+    fax_number: "request.udf_fields.fax_number"
+
+    age_group: "request.udf_fields.age_group"
+    consent_provided_for_minor: "request.udf_fields.consent_provided_for_minor"
+
+    usage_location: "request.udf_fields.usage_location"
+
+    preferred_language: "request.udf_fields.preferred_language"
+
+    license_sku: "request.udf_fields.license_sku"
+
+    subject: "request.subject"
+    description: "request.description"
+    site: "request.site.name"
+    budget: "request.udf_fields.budget"
+
+mappings:
+
+  # Identity
+
+  - source: first_name
+    target: givenName
+    mode: direct
+    required: true
+
+  - source: last_name
+    target: surname
+    mode: direct
+    required: true
+
+  - source: [first_name, middle_name, last_name]
+    target: displayName
+    mode: derived
+    transform: "join_non_empty(source, ' ')"
+    required: true
+
+  - source: [first_name, last_name]
+    target: mailNickname
+    mode: derived
+    transform: "sanitize(lower(first_name + '.' + last_name))"
+    required: true
+
+  - source: [first_name, last_name]
+    target: userPrincipalName
+    mode: derived
+    transform: "mail_nickname + '@' + defaults.domain"
+    required: true
+
+  - source: userPrincipalName
+    target: mail
+    mode: derived
+    transform: "userPrincipalName"
+    required: false
+
+  # Password Profile
+
+  - source: null
+    target: passwordProfile.password
+    mode: runtime_generated
+    required: true
+
+  - source: null
+    target: passwordProfile.forceChangePasswordNextSignIn
+    mode: constant
+    value: true
+    required: true
+
+  # Account Configuration
+
+  - source: null
+    target: accountEnabled
+    mode: default
+    default_path: defaults.account_enabled
+    required: true
+
+  - source: null
+    target: userType
+    mode: constant
+    value: Member
+    required: true
+
+  - source: usage_location
+    target: usageLocation
+    mode: direct_with_default
+    default: IN
+    required: true
+
+  - source: preferred_language
+    target: preferredLanguage
+    mode: direct_with_default
+    default: en-US
+    required: false
+
+  # Job Information
+
+  - source: designation
+    target: jobTitle
+    mode: direct
+    required: true
+
+  - source: company_name
+    target: companyName
+    mode: direct
+    required: true
+
+  - source: department_name
+    target: department
+    mode: direct
+    required: true
+
+  - source: staff_no
+    target: employeeId
+    mode: direct
+    required: true
+
+  - source: employee_type
+    target: employeeType
+    mode: direct
+    required: false
+
+  - source: employee_hire_date
+    target: employeeHireDate
+    mode: direct
+    format: "YYYY-MM-DDTHH:mm:ssZ"
+    required: false
+
+  - source: location
+    target: officeLocation
+    mode: direct
+    required: true
+
+  # Manager Assignment
+
+  - source: reporting_manager
+    target: manager
+    mode: relationship_lookup
+    lookup_by: mail_or_upn
+    post_create_operation: true
+    required: true
+
+  # Address Information
+
+  - source: company_address
+    target: streetAddress
+    mode: direct
+    required: false
+
+  - source: city
+    target: city
+    mode: direct
+    required: false
+
+  - source: state_or_province
+    target: state
+    mode: direct
+    required: false
+
+  - source: postal_code
+    target: postalCode
+    mode: direct
+    required: false
+
+  - source: country_or_region
+    target: country
+    mode: direct_with_default
+    default: India
+    required: true
+
+  # Contact Information
+
+  - source: phone_number
+    target: businessPhones
+    mode: array_from_scalar
+    required: false
+
+  - source: mobile_phone
+    target: mobilePhone
+    mode: direct
+    required: false
+
+  - source: other_mails
+    target: otherMails
+    mode: direct_with_default
+    default: []
+    required: false
+
+  - source: fax_number
+    target: faxNumber
+    mode: direct
+    required: false
+
+  # Parental Controls
+
+  - source: age_group
+    target: ageGroup
+    mode: direct
+    required: false
+
+  - source: consent_provided_for_minor
+    target: consentProvidedForMinor
+    mode: direct
+    required: false
+
+  # Custom / Extension Attributes
+
+  - source: grade
+    target: extensionAttribute1
+    mode: direct
+    required: false
+
+  - source: department_head
+    target: extensionAttribute2
+    mode: direct
+    required: false
+
+  - source: roles_and_responsibility
+    target: extensionAttribute3
+    mode: direct
+    required: false
+
+  # License Assignment
+
+  - source: license_sku
+    target: assignedLicenses
+    mode: post_create_license_assignment
+    required: false
+
+unmapped_source_fields:
+  behavior: retain_for_audit
+
+  fields:
+    - request_for
+    - status
+    - technician
+    - group
+    - subject
+    - description
+    - site
+    - budget

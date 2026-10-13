@@ -1,0 +1,27 @@
+services:
+  dagu:
+    image: ghcr.io/dagucloud/dagu:alpine 
+    container_name: orchestrator
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DAGU_HOST: 0.0.0.0
+      DAGU_PORT: 8080
+      DAGU_HOME: /var/lib/dagu
+      DAGU_DAGS_DIR: /dags
+      DAGU_TZ: ${TZ:-UTC}
+      DAGU_SKIP_EXAMPLES: "true"
+      
+      DAGU_AUTH_MODE: basic
+      DAGU_AUTH_BASIC_USERNAME: ${DAGU_USER:-admin}
+      DAGU_AUTH_BASIC_PASSWORD: ${DAGU_PASSWORD:-admin}
+      
+      SCRIPTS_DIR: ${OPS_DIR}/scripts
+    volumes:
+      - ./dags:/dags:ro                        
+      - dagu-data:/var/lib/dagu              
+      - ${OPS_DIR}/scripts:${OPS_DIR}/scripts:ro
+ 
+volumes:
+  dagu-data:
