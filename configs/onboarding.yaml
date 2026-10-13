@@ -1,0 +1,219 @@
+# -----------------------------------------------------------------------------
+# Employee onboarding workflow configuration
+# Business rules and execution settings only.
+# ServiceDesk field paths live in servicedesk-entra-mapping.yaml.
+# Secrets are NEVER stored here - only the names of environment variables.
+# -----------------------------------------------------------------------------
+
+schema_version: "2.0"
+workflow_type: employee_onboarding
+
+configuration:
+  field_mapping_file: "servicedesk-entra-mapping.yaml"   # relative to this file
+
+paths:
+  # ONBOARDING_DATA_DIR overrides data_dir (the Docker image sets it).
+  data_dir: /var/lib/onboarding
+  state_subdir: state       # per-ticket JSON handed from step to step (no secrets)
+  reports_subdir: reports   # onboarding-<ticket>-<timestamp>.md / .json
+  cache_subdir: cache       # local map of Entra groups / Intune apps
+
+defaults:
+  domain: sonacomstar.com
+  usage_location: IN          # required by Entra before a license can be assigned
+  country_or_region: India
+  user_type: Member
+  account_enabled: true
+  preferred_language: en-US
+
+# -----------------------------------------------------------------------------
+# ServiceDesk Plus (on-premises, API v3)
+# -----------------------------------------------------------------------------
+servicedesk:
+  provider: servicedesk_plus
+  base_url: "https://servicedesksonacomstarcom-sonagroup.msappproxy.net"
+
+  # apikey -> technician API key sent in the "authtoken" header (on-prem v3)
+  # basic  -> SDP_USERNAME / SDP_PASSWORD (only if your gateway accepts it)
+  auth: apikey
+  credentials:
+    token_env: SDP_API_KEY
+    header_name: authtoken
+    username_env: SDP_USERNAME
+    password_env: SDP_PASSWORD
+
+  ticket_path: "/api/v3/requests/{ticket_id}"
+  note_path: "/api/v3/requests/{ticket_id}/notes"
+  close_path: "/api/v3/requests/{ticket_id}/close"
+
+  notes:
+    entity: request_note        # newer SDP builds renamed this entity to "note"
+    notify_technician: false
+
+  accepted_request_for:
+    - Email ID only
+    - Email ID + Asset
+
+  approved_statuses:
+    - Approved
+    - Implementation Approved
+
+# -----------------------------------------------------------------------------
+# Microsoft Graph
+# -----------------------------------------------------------------------------
+graph:
+  base_url: "https://graph.microsoft.com/v1.0"
+  page_size: 999
+  credentials:
+    tenant_id_env: ENTRA_TENANT_ID
+    client_id_env: ENTRA_CLIENT_ID
+    client_secret_env: ENTRA_CLIENT_SECRET
+
+# -----------------------------------------------------------------------------
+# Step 3 - Create user
+# -----------------------------------------------------------------------------
+email:
+  # 1st choice: firstname.lastname@domain
+  # if that address is already used by any user (UPN, mail or proxy address):
+  #             firstname.lastname<separator><staff_no>@domain
+  # if that is also taken the step fails rather than guessing.
+  employee_code_separator: ""
+  # Also treat addresses of users still in the Entra recycle bin (30 days) as taken.
+  include_soft_deleted_users: true
+
+password:
+  length: 20
+  force_change_password_next_sign_in: true
+  # none             -> password is never stored or shown; reset it (or issue a
+  #                     Temporary Access Pass) when handing over the account.
+  # sdp_private_note -> posted once as a technician-only note on the ticket.
+  delivery: none
+
+# Cloud-only users can carry onPremisesExtensionAttributes; target -> SDP field.
+extension_attributes:
+  extensionAttribute1: grade
+  extensionAttribute2: department_head
+  extensionAttribute3: roles_and_responsibility
+
+# -----------------------------------------------------------------------------
+# Step 4 - Assign license
+# -----------------------------------------------------------------------------
+license:
+  source_field: license_sku
+  required: true                 # validation fails if the ticket has no license
+  default_skus: []               # used when the ticket field is empty, e.g. [SPE_E3]
+  # Ticket value -> skuPartNumber (GET /subscribedSkus). Values not listed are
+  # treated as a skuPartNumber or skuId directly.
+  sku_aliases:
+    "Microsoft 365 E3": SPE_E3
+    "Microsoft 365 Business Premium": SPB
+    "Office 365 E1": STANDARDPACK
+  # skuPartNumber -> service plans to switch off
+  disabled_plans: {}
+  #  SPE_E3: [YAMMER_ENTERPRISE]
+
+# -----------------------------------------------------------------------------
+# Steps 5-7 - Group based assignments
+# All three use the same local group map. Each ticket value resolves via:
+#   aliases[value] -> exact display name -> name_prefix + value
+# -----------------------------------------------------------------------------
+directory_cache:
+  ttl_minutes: 60                # one download shared by validate + steps 5-7
+
+assignments:
+  user_groups:
+    label: User groups
+    source_field: user_groups
+    required: false
+    name_prefix: ""
+    restrict_to_prefix: false
+    default_values: []           # groups every new joiner gets
+    aliases: {}
+    #  "Finance Team": "SG-Finance-Users"
+    deny_groups: []
+
+  rule_bundles:
+    label: Rule bundles
+    source_field: rule_bundles
+    required: false
+    name_prefix: "RB-"
+    restrict_to_prefix: true     # only RB-* groups can be requested here
+    default_values: []
+    aliases: {}
+    deny_groups: []
+
+  intune_apps:
+    label: Intune apps
+    source_field: intune_apps
+    required: false
+    # group      -> ticket value is an app-assignment group name (same as user groups)
+    # intune_app -> ticket value is the Intune app display name; the user is added
+    #               to the group the app is assigned to (needs DeviceManagementApps.Read.All)
+    resolve_via: group
+    name_prefix: "APP-"
+    restrict_to_prefix: true
+    intune_assignment_intents: [required, available]
+    app_group_selection: single  # single | all (when an app is assigned to several groups)
+    default_values: []
+    aliases: {}
+    deny_groups: []
+
+# -----------------------------------------------------------------------------
+# Step 2 - Validation
+# -----------------------------------------------------------------------------
+validation:
+  required_sdp_fields:
+    - request_for
+    - status
+    - first_name
+    - last_name
+    - designation
+    - department_name
+    - reporting_manager
+    - staff_no
+    - company_name
+    - location
+
+  allowed_employee_types:
+    - Employee
+    - Contractor
+    - Consultant
+    - Trainee
+    - Intern
+
+  # Resolve manager, duplicate staff no, license seats and every group/bundle/app
+  # BEFORE the user is created, so a bad value never leaves a half-onboarded user.
+  directory_checks: true
+
+# -----------------------------------------------------------------------------
+# Step 8 - Report
+# -----------------------------------------------------------------------------
+report:
+  verify_attempts: 3             # re-read Entra; writes replicate asynchronously
+  verify_delay_seconds: 15
+  fail_on_mismatch: true         # stop before closing the ticket
+  post_to_ticket: true           # technician-only note with the summary
+  post_failure_to_ticket: true   # error-report handler adds a note on failure
+
+# -----------------------------------------------------------------------------
+# Step 9 - Close ticket
+# -----------------------------------------------------------------------------
+close:
+  set_resolution: true
+  closure_code: Success
+  closure_comments: "Closed automatically after successful onboarding."
+  requester_ack_resolution: true
+  closed_statuses: [Closed]
+  # Mandatory request fields your SDP template requires before closing, e.g.
+  #  udf_fields: { udf_pick_1801: "Completed" }
+  extra_request_fields: {}
+
+processing:
+  retry_policy:
+    maximum_attempts: 4
+    retryable_http_status_codes: [429, 500, 502, 503, 504]
+    honor_retry_after_header: true
+    initial_delay_seconds: 10
+    backoff_multiplier: 3
+    maximum_delay_seconds: 300
+    read_timeout_seconds: 60

@@ -1,27 +1,36 @@
 services:
   dagu:
-    image: ghcr.io/dagucloud/dagu:alpine 
+    build:
+      context: .
+      args:
+        DAGU_IMAGE: ghcr.io/dagucloud/dagu:alpine
+    image: it-automation/dagu-onboarding:latest
     container_name: orchestrator
     restart: unless-stopped
     ports:
       - "8080:8080"
+    env_file:
+      - .env                    # ENTRA_* and SDP_* secrets - see .env.example
     environment:
       DAGU_HOST: 0.0.0.0
       DAGU_PORT: 8080
       DAGU_HOME: /var/lib/dagu
       DAGU_DAGS_DIR: /dags
-      DAGU_TZ: ${TZ:-UTC}
+      DAGU_TZ: ${TZ:-Asia/Kolkata}
       DAGU_SKIP_EXAMPLES: "true"
-      
+
       DAGU_AUTH_MODE: basic
-      DAGU_AUTH_BASIC_USERNAME: ${DAGU_USER:-admin}
-      DAGU_AUTH_BASIC_PASSWORD: ${DAGU_PASSWORD:-admin}
-      
-      SCRIPTS_DIR: ${OPS_DIR}/scripts
+      DAGU_AUTH_BASIC_USERNAME: ${DAGU_USER:?set DAGU_USER in .env}
+      DAGU_AUTH_BASIC_PASSWORD: ${DAGU_PASSWORD:?set DAGU_PASSWORD in .env}
+
+      ONBOARDING_DATA_DIR: /var/lib/onboarding
+      PUID: "1000"              # must match RUN_UID/RUN_GID in the Dockerfile
+      PGID: "1000"
     volumes:
-      - ./dags:/dags:ro                        
-      - dagu-data:/var/lib/dagu              
-      - ${OPS_DIR}/scripts:${OPS_DIR}/scripts:ro
- 
+      - ./dags:/dags:ro
+      - dagu-data:/var/lib/dagu
+      - onboarding-data:/var/lib/onboarding   # state, reports, group cache
+
 volumes:
   dagu-data:
+  onboarding-data:

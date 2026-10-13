@@ -1,0 +1,59 @@
+description: Employee onboarding - ServiceDesk Plus ticket to Microsoft Entra
+
+# Steps run strictly in order. If any step exits non-zero, the remaining steps
+# are not run and the failure handler posts a failure report on the ticket.
+# The run is safe to repeat for the same ticket: completed work is detected
+# (user exists, license present, already a member) and skipped.
+type: chain
+
+params:
+  - name: TICKET_ID
+    type: string
+    required: true
+    description: ServiceDesk Plus request ID
+  - name: DRY_RUN
+    type: boolean
+    default: false
+    description: Read-only run - validate and report what would change
+
+env:
+  - ONBOARDING_CONFIG: /app/configs/onboarding.yaml
+  - ONBOARDING_DATA_DIR: /var/lib/onboarding
+  - ENTRA_TENANT_ID: ${ENTRA_TENANT_ID}
+  - ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID}
+  - ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET}
+  - SDP_API_KEY: ${SDP_API_KEY}
+
+timeout_sec: 3600
+
+handler_on:
+  failure:
+    run: /opt/onboarding/bin/python /app/onboard.py error-report "${params.TICKET_ID}"
+
+steps:
+  - id: fetch_ticket
+    run: /opt/onboarding/bin/python /app/onboard.py fetch "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: validate_ticket
+    run: /opt/onboarding/bin/python /app/onboard.py validate "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: create_user
+    run: /opt/onboarding/bin/python /app/onboard.py create-user "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: assign_license
+    run: /opt/onboarding/bin/python /app/onboard.py assign-license "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: add_groups
+    run: /opt/onboarding/bin/python /app/onboard.py add-groups "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: assign_rule_bundles
+    run: /opt/onboarding/bin/python /app/onboard.py assign-rule-bundles "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: assign_intune_apps
+    run: /opt/onboarding/bin/python /app/onboard.py assign-intune-apps "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: generate_report
+    run: /opt/onboarding/bin/python /app/onboard.py generate-report "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"
+
+  - id: close_ticket
+    run: /opt/onboarding/bin/python /app/onboard.py close-ticket "${params.TICKET_ID}" --dry-run "${params.DRY_RUN}"

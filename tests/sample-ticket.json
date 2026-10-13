@@ -1,0 +1,36 @@
+{
+  "response_status": {"status_code": 2000, "status": "success"},
+  "request": {
+    "id": "12345",
+    "subject": "New joiner - Asha Verma",
+    "description": "Please onboard the new joiner.",
+    "status": {"name": "Approved"},
+    "technician": {"email_id": "it.helpdesk@sonacomstar.com"},
+    "group": {"name": "IT Onboarding"},
+    "department": {"name": "Finance"},
+    "site": {"name": "Gurugram HQ"},
+    "udf_fields": {
+      "request_for": "Email ID only",
+      "first_name": "Asha",
+      "middle_name": null,
+      "last_name": "Verma",
+      "grade": "M2",
+      "designation": "Finance Analyst",
+      "department_head": "rohit.mehra@sonacomstar.com",
+      "reporting_manager": "priya.singh@sonacomstar.com",
+      "staff_no": "E10234",
+      "company_name": "Sona Comstar",
+      "city": "Gurugram",
+      "state_or_province": "Haryana",
+      "postal_code": "122002",
+      "country_or_region": "India",
+      "employee_type": "Employee",
+      "employee_hire_date": "2026-11-02",
+      "mobile_phone": "+91 98100 00000",
+      "license_sku": "Microsoft 365 E3",
+      "user_groups": ["Finance Team", "All Staff Gurugram"],
+      "rule_bundles": ["Standard-Office"],
+      "intune_apps": "Adobe Acrobat Reader; Microsoft Teams"
+    }
+  }
+}
