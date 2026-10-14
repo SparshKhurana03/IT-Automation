@@ -99,6 +99,58 @@ Dry run reads from Graph and SDP but makes no changes. The report lists what wou
 
 Exit codes: `0` ok, `2` validation, `3` configuration, `4` API, `5` step order, `6` verification, `1` other.
 
+## Test with your M365 admin account (one user + Microsoft 365 F3)
+
+This uses `configs/onboarding.test.yaml` and `tests/test-ticket-f3.json`. It needs no app
+registration, no ServiceDesk Plus and no Dagu. You sign in once in the browser as your admin
+account (MFA works). The account needs **User Administrator + License Administrator**, or
+Global Administrator.
+
+1. Edit `configs/onboarding.test.yaml`: set `defaults.domain` to a verified domain of your
+   tenant (e.g. `yourcompany.onmicrosoft.com`).
+2. Edit `tests/test-ticket-f3.json`: set `reporting_manager` to an existing user's UPN
+   (your own account is fine).
+3. Install and sign in (run everything from the repo root):
+
+   ```bash
+   python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+   export ENTRA_TENANT_ID=yourcompany.onmicrosoft.com     # or the tenant GUID
+   export CFG=configs/onboarding.test.yaml
+   python onboard.py login --config $CFG                  # open the URL, enter the code, sign in
+   python onboard.py list-skus --config $CFG              # find F3: SPE_F1 (M365 F3) or DESKLESSPACK (O365 F3)
+   ```
+
+   The first sign-in asks you to consent to the Graph permissions. If it says admin approval
+   is required, a Global Administrator must sign in once and tick "Consent on behalf of your
+   organization".
+   If `list-skus` shows `DESKLESSPACK` rather than `SPE_F1`, set `"license_sku": "Office 365 F3"`
+   in the test ticket.
+
+4. Dry run first, then the real run (each step is the same command Dagu runs):
+
+   ```bash
+   T=TEST-0001
+   python onboard.py fetch $T --config $CFG --input-file tests/test-ticket-f3.json --dry-run true
+   for s in validate create-user assign-license generate-report; do
+     python onboard.py $s $T --config $CFG --dry-run true || break
+   done
+   # if the dry-run report in data-test/reports looks right:
+   python onboard.py fetch $T --config $CFG --input-file tests/test-ticket-f3.json
+   for s in validate create-user assign-license add-groups assign-rule-bundles assign-intune-apps generate-report; do
+     python onboard.py $s $T --config $CFG || break
+   done
+   ```
+
+   `create-user` prints the temporary password once in your terminal (`password.delivery: console`).
+   `generate-report` reads the user back from Entra and confirms the F3 license is assigned.
+   `close-ticket` is skipped because the ticket came from a file.
+
+5. Clean up: delete the test user in the Entra admin center. This frees the F3 seat after the
+   soft-delete. Then remove `data-test/` (state, reports and the cached sign-in).
+
+The cached sign-in lives in `data-test/cache/msal_token_cache.json` (mode 0600). Treat it like
+a password. Production Dagu runs should use `graph.auth_mode: app` with an app registration.
+
 ## Tests
 
 ```bash

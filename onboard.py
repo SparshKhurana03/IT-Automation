@@ -18,8 +18,13 @@ Steps (run in this order; each refuses to start until the previous one completed
     error-report          Dagu failure handler: failure report + private note on the ticket
     run-all               run every step in sequence (local testing)
 
+Utilities (no ticket id):
+    login                 graph.auth_mode=device_code: sign in once as an M365 admin
+    list-skus             show the tenant's license SKUs (skuPartNumber) and free seats
+
 Required environment variables:
-    ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET
+    ENTRA_TENANT_ID                                   always (tenant GUID or e.g. contoso.onmicrosoft.com)
+    ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET              graph.auth_mode=app
     SDP_API_KEY (servicedesk.auth: apikey) or SDP_USERNAME / SDP_PASSWORD (basic)
 
 Exit codes: 0 ok, 2 validation, 3 configuration, 4 API, 5 step order, 6 verification, 1 other.
@@ -40,12 +45,14 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from helpers.config import data_directories, load_configuration  # noqa: E402
-from helpers.errors import LifecycleError  # noqa: E402
+from helpers.auth import acquire_graph_token, auth_mode  # noqa: E402
+from helpers.errors import ConfigurationError, LifecycleError  # noqa: E402
 from helpers.http_client import RetryHttpClient  # noqa: E402
 from helpers.state import StateStore, validate_ticket_id  # noqa: E402
 from workflow import STEP_ORDER, StepContext, handle_failure, run_step  # noqa: E402
 
 LOG = logging.getLogger("onboarding")
+UTILITY_COMMANDS = ["login", "list-skus"]
 DEFAULT_CONFIG = HERE / "configs" / "onboarding.yaml"
 
 
@@ -59,8 +66,8 @@ def str_to_bool(value: str) -> bool:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Employee onboarding: ServiceDesk Plus -> Microsoft Entra")
-    parser.add_argument("command", choices=STEP_ORDER + ["error-report", "run-all"])
-    parser.add_argument("ticket_id", help="ServiceDesk Plus request ID")
+    parser.add_argument("command", choices=STEP_ORDER + ["error-report", "run-all"] + UTILITY_COMMANDS)
+    parser.add_argument("ticket_id", nargs="?", help="ServiceDesk Plus request ID (not used by login / list-skus)")
     parser.add_argument("--config", default=os.getenv("ONBOARDING_CONFIG", str(DEFAULT_CONFIG)))
     parser.add_argument(
         "--dry-run", nargs="?", const=True, default=False, type=str_to_bool,
@@ -72,6 +79,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def token_cache_path(dirs: dict[str, Path]) -> Path:
+    return dirs["cache"] / "msal_token_cache.json"
+
+
 def build_context(args: argparse.Namespace) -> StepContext:
     config, mapping = load_configuration(Path(args.config).resolve())
     http = RetryHttpClient(config.get("processing", {}).get("retry_policy", {}))
@@ -80,7 +91,7 @@ def build_context(args: argparse.Namespace) -> StepContext:
     def graph_factory(correlation_id: str):
         from clients.graph_client import GraphClient
 
-        return GraphClient(config, http, correlation_id)
+        return GraphClient(config, http, correlation_id, token_cache_path=token_cache_path(dirs))
 
     def sdp_factory():
         from clients.servicedesk_client import ServiceDeskClient
@@ -101,6 +112,33 @@ def build_context(args: argparse.Namespace) -> StepContext:
     )
 
 
+def run_utility(args: argparse.Namespace) -> int:
+    config, _ = load_configuration(Path(args.config).resolve())
+    dirs = data_directories(config)
+    if args.command == "login":
+        if auth_mode(config) != "device_code":
+            raise ConfigurationError("login is only needed when graph.auth_mode is device_code")
+        acquire_graph_token(config, token_cache_path(dirs), interactive=True)
+        print("Signed in. Steps will now reuse this sign-in until it expires.")
+        return 0
+
+    # list-skus
+    from clients.graph_client import GraphClient
+
+    http = RetryHttpClient(config.get("processing", {}).get("retry_policy", {}))
+    graph = GraphClient(config, http, "list-skus", token_cache_path=token_cache_path(dirs))
+    rows = []
+    for sku in sorted(graph.list_subscribed_skus(), key=lambda s: s.get("skuPartNumber", "")):
+        enabled = int((sku.get("prepaidUnits") or {}).get("enabled", 0))
+        consumed = int(sku.get("consumedUnits", 0))
+        rows.append((sku.get("skuPartNumber", ""), sku.get("skuId", ""), enabled, consumed, enabled - consumed,
+                     sku.get("capabilityStatus", "")))
+    print(f"{'skuPartNumber':<34} {'skuId':<38} {'total':>6} {'used':>6} {'free':>6}  status")
+    for part, sku_id, enabled, consumed, free, status in rows:
+        print(f"{part:<34} {sku_id:<38} {enabled:>6} {consumed:>6} {free:>6}  {status}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(
@@ -109,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     try:
+        if args.command in UTILITY_COMMANDS:
+            return run_utility(args)
+        if not args.ticket_id:
+            raise ConfigurationError(f"'{args.command}' needs a ticket id: onboard.py {args.command} <ticket_id>")
         ctx = build_context(args)
         if args.command == "error-report":
             print(json.dumps(handle_failure(ctx), indent=2))

@@ -36,17 +36,48 @@ def load_yaml(path: Path) -> dict[str, Any]:
     return value
 
 
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``override`` into a copy of ``base`` (lists and scalars replace)."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config_file(config_path: Path, _seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Load a config file, applying it on top of ``base_config`` when that key is present.
+
+    This lets a small file such as ``onboarding.test.yaml`` override only what
+    differs from the production ``onboarding.yaml``.
+    """
+    config_path = config_path.resolve()
+    if config_path in _seen:
+        raise ConfigurationError(f"base_config loop detected at {config_path}")
+    config = load_yaml(config_path)
+    base_ref = config.pop("base_config", None)
+    if not base_ref:
+        return config
+    base = load_config_file((config_path.parent / base_ref).resolve(), _seen + (config_path,))
+    return deep_merge(base, config)
+
+
 def load_configuration(config_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(config, mapping)``; the mapping path is relative to the config file."""
-    config = load_yaml(config_path)
+    config = load_config_file(config_path)
     mapping_ref = config.get("configuration", {}).get("field_mapping_file")
     if not mapping_ref:
         raise ConfigurationError("configuration.field_mapping_file is required")
     mapping_path = (config_path.parent / mapping_ref).resolve()
     mapping = load_yaml(mapping_path)
 
-    if not config.get("defaults", {}).get("domain"):
+    domain = str(config.get("defaults", {}).get("domain") or "")
+    if not domain:
         raise ConfigurationError("defaults.domain is required")
+    if "REPLACE-WITH" in domain.upper():
+        raise ConfigurationError(f"defaults.domain is still a placeholder ({domain}); set your verified domain in {config_path.name}")
     if not mapping.get("source", {}).get("fields"):
         raise ConfigurationError("source.fields is missing from the mapping YAML")
     return config, mapping

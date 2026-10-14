@@ -1,6 +1,8 @@
-"""Microsoft Graph client (application permissions, client-credentials flow).
+"""Microsoft Graph client.
 
-Application permissions required on the app registration (admin consent):
+Authentication (app registration or device-code sign-in) is in helpers/auth.py.
+Permissions required (application permissions for auth_mode=app, delegated
+scopes for auth_mode=device_code):
   User.ReadWrite.All               create users, set manager, read all users
   GroupMember.ReadWrite.All        add members to groups
   Group.Read.All                   build the local group map
@@ -17,7 +19,9 @@ import re
 from typing import Any, Iterator
 from urllib.parse import quote
 
-from helpers.config import env_required
+from pathlib import Path
+
+from helpers.auth import acquire_graph_token
 from helpers.errors import ApiError, ValidationError
 from helpers.http_client import RetryHttpClient
 
@@ -38,12 +42,19 @@ def _odata_literal(value: str) -> str:
 
 
 class GraphClient:
-    def __init__(self, config: dict[str, Any], http: RetryHttpClient, correlation_id: str, token: str | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        http: RetryHttpClient,
+        correlation_id: str,
+        token: str | None = None,
+        token_cache_path: Path | None = None,
+    ):
         graph = config.get("graph", {})
         self.http = http
         self.base_url = graph.get("base_url", GRAPH_ROOT).rstrip("/")
         self.page_size = int(graph.get("page_size", 999))
-        token = token or self._acquire_token(graph)
+        token = token or acquire_graph_token(config, token_cache_path)
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
@@ -51,26 +62,6 @@ class GraphClient:
             "client-request-id": correlation_id,
             "return-client-request-id": "true",
         }
-
-    @staticmethod
-    def _acquire_token(graph: dict[str, Any]) -> str:
-        import msal  # imported lazily so offline tooling/tests do not need it
-
-        credentials = graph.get("credentials", {})
-        tenant_id = env_required(credentials.get("tenant_id_env", "ENTRA_TENANT_ID"))
-        client_id = env_required(credentials.get("client_id_env", "ENTRA_CLIENT_ID"))
-        client_secret = env_required(credentials.get("client_secret_env", "ENTRA_CLIENT_SECRET"))
-        app = msal.ConfidentialClientApplication(
-            client_id=client_id,
-            client_credential=client_secret,
-            authority=f"https://login.microsoftonline.com/{tenant_id}",
-        )
-        result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
-        token = result.get("access_token")
-        if not token:
-            safe_error = result.get("error_description") or result.get("error") or "unknown token error"
-            raise ApiError(f"Unable to acquire Microsoft Graph application token: {safe_error}")
-        return token
 
     # ------------------------------------------------------------------ basics
 

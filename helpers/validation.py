@@ -70,7 +70,9 @@ def validate_input(fields: dict[str, Any], config: dict[str, Any]) -> list[str]:
 
     # Manager ----------------------------------------------------------------
     reporting_manager = (fields.get("reporting_manager") or "").strip()
-    if reporting_manager and not is_email(reporting_manager):
+    if "REPLACE-WITH" in reporting_manager.upper():
+        errors.append("Reporting Manager is still the placeholder; set it to an existing user's UPN in the test ticket")
+    elif reporting_manager and not is_email(reporting_manager):
         errors.append("Reporting Manager must contain a valid email address or UPN")
 
     # Employee type ----------------------------------------------------------

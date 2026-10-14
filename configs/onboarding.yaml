@@ -31,7 +31,7 @@ defaults:
 # -----------------------------------------------------------------------------
 servicedesk:
   provider: servicedesk_plus
-  base_url: "https://servicedesksonacomstarcom-sonagroup.msappproxy.net"
+  base_url: "https://sdpuat.sonacomstar.com:8080"
 
   # apikey -> technician API key sent in the "authtoken" header (on-prem v3)
   # basic  -> SDP_USERNAME / SDP_PASSWORD (only if your gateway accepts it)
@@ -105,6 +105,7 @@ license:
   # Ticket value -> skuPartNumber (GET /subscribedSkus). Values not listed are
   # treated as a skuPartNumber or skuId directly.
   sku_aliases:
+    "F1": SPE_F1
     "Microsoft 365 E3": SPE_E3
     "Microsoft 365 Business Premium": SPB
     "Office 365 E1": STANDARDPACK

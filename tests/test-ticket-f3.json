@@ -1,0 +1,27 @@
+{
+  "response_status": {"status_code": 200, "status": "success"},
+  "request": {
+    "id": "12345",
+    "subject": "TEST - Automated onboarding with Microsoft 365 F1",
+    "description": "Test ticket. Delete the created user after the test.",
+    "status": {"name": "Approved"},
+    "department": {"name": "IT"},
+    "site": {"name": "Gurugram"},
+    "udf_fields": {
+      "request_for": "Email ID only",
+      "first_name": "Onboarding",
+      "last_name": "Testuser",
+      "designation": "E-2",
+      "reporting_manager": "ashish.aswal@sonacomstar.com",
+      "staff_no": "1800",
+      "company_name": "SonaComstar",
+      "country_or_region": "India",
+      "usage_location": "IN",
+      "employee_type": "Employee",
+      "license_sku": "F1",
+      "user_groups": [],
+      "rule_bundles": [],
+      "intune_apps": []
+    }
+  }
+}

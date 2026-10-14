@@ -1,0 +1,39 @@
+# -----------------------------------------------------------------------------
+# Local test configuration: create ONE real user from tests/test-ticket-f3.json
+# and give it a Microsoft 365 F3 license, signing in as your M365 admin account.
+#
+# Only the differences from onboarding.yaml are listed here.
+#   python onboard.py login       --config configs/onboarding.test.yaml
+#   python onboard.py list-skus   --config configs/onboarding.test.yaml
+#   python onboard.py fetch TEST-0001 --config configs/onboarding.test.yaml \
+#          --input-file tests/test-ticket-f3.json
+#   ... then validate, create-user, assign-license, generate-report (see readme)
+# -----------------------------------------------------------------------------
+base_config: onboarding.yaml
+
+defaults:
+  # Must be a verified domain in YOUR tenant (Entra admin center -> Domain names),
+  # e.g. yourcompany.onmicrosoft.com for a test tenant.
+  domain: sonacomstar.com
+
+graph:
+  auth_mode: device_code
+
+paths:
+  data_dir: ./data-test             # state, reports, token cache (git-ignored)
+
+password:
+  delivery: console                 # shown once in your terminal so you can sign in as the test user
+
+license:
+  required: true
+
+# Groups are not part of this test: no ticket values and no defaults -> steps skip.
+assignments:
+  user_groups:   {default_values: []}
+  rule_bundles:  {default_values: []}
+  intune_apps:   {default_values: []}
+
+report:
+  post_to_ticket: false
+  post_failure_to_ticket: false

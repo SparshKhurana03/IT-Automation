@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import sys
 import traceback
 import uuid
 from dataclasses import dataclass, field
@@ -296,6 +297,15 @@ def step_create_user(ctx: StepContext, state: dict[str, Any]) -> dict[str, Any]:
         except LifecycleError as exc:
             # Do not fail the step: the user exists and a re-run would never resend the password.
             state.setdefault("warnings", []).append(f"Password note could not be added to the ticket ({exc}); reset the password manually")
+    elif password_cfg.get("delivery") == "console":
+        if sys.stderr.isatty():
+            # Interactive test runs only: shown once on the terminal, never logged or saved.
+            sys.stderr.write(f"\n*** Temporary password for {upn}: {password}  (change required at first sign-in)\n\n")
+            sys.stderr.flush()
+        else:
+            state.setdefault("warnings", []).append(
+                "password.delivery=console needs an interactive terminal; password not shown - reset it manually"
+            )
     del password
     return {"upn": user_state["upn"], "object_id": created["id"], "used_fallback_address": user_state["used_fallback_address"]}
 

@@ -11,7 +11,7 @@ params:
     type: string
     required: true
     description: ServiceDesk Plus request ID
-  - name: DRY_RUN
+  - name: DRY_RUN # Remove this for production
     type: boolean
     default: false
     description: Read-only run - validate and report what would change

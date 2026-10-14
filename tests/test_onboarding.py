@@ -23,6 +23,8 @@ from clients.graph_client import GraphClient  # noqa: E402
 from clients.servicedesk_client import ServiceDeskClient  # noqa: E402
 from fakes import E3, FakeGraph, FakeSDP  # noqa: E402
 from helpers.config import load_configuration  # noqa: E402
+from helpers.auth import acquire_graph_token  # noqa: E402
+from helpers.errors import ConfigurationError  # noqa: E402
 from helpers.errors import StepOrderError, ValidationError, ApiError  # noqa: E402
 from helpers.http_client import RetryHttpClient  # noqa: E402
 from helpers.state import StateStore  # noqa: E402
@@ -464,6 +466,71 @@ class ClientTests(unittest.TestCase):
         self.assertFalse(parse_args(["fetch", "1", "--dry-run", "false"]).dry_run)
         self.assertTrue(parse_args(["fetch", "1", "--dry-run"]).dry_run)
         self.assertFalse(parse_args(["fetch", "1"]).dry_run)
+
+
+class TestModeTests(unittest.TestCase):
+    """The F3 test path: test config + test ticket + device-code sign-in."""
+
+    def write_test_config(self, tmp: Path, domain: str = "contoso.onmicrosoft.com") -> Path:
+        for name in ("onboarding.yaml", "servicedesk-entra-mapping.yaml"):
+            shutil.copy(ROOT / "configs" / name, tmp / name)
+        text = (ROOT / "configs" / "onboarding.test.yaml").read_text()
+        text = text.replace("REPLACE-WITH-YOUR-DOMAIN.onmicrosoft.com", domain)
+        path = tmp / "onboarding.test.yaml"
+        path.write_text(text)
+        return path
+
+    def test_test_config_overrides_base(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            config, _ = load_configuration(self.write_test_config(tmp))
+            self.assertEqual(config["graph"]["auth_mode"], "device_code")
+            self.assertEqual(config["graph"]["base_url"], "https://graph.microsoft.com/v1.0")  # inherited
+            self.assertEqual(config["defaults"]["domain"], "contoso.onmicrosoft.com")
+            self.assertEqual(config["defaults"]["usage_location"], "IN")  # inherited
+            self.assertEqual(config["license"]["sku_aliases"]["F3"], "SPE_F1")
+            self.assertEqual(config["assignments"]["rule_bundles"]["name_prefix"], "RB-")  # merged, not replaced
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_placeholder_domain_rejected(self):
+        with self.assertRaises(ConfigurationError):
+            load_configuration(ROOT / "configs" / "onboarding.test.yaml")
+
+    def test_device_code_without_login_gives_clear_error(self):
+        os.environ["ENTRA_TENANT_ID"] = "contoso.onmicrosoft.com"
+        config = {"graph": {"auth_mode": "device_code"}}
+        with self.assertRaises(ConfigurationError) as caught:
+            acquire_graph_token(config, Path(tempfile.mkdtemp()) / "none.json")
+        self.assertIn("onboard.py login", str(caught.exception))
+
+    def test_f3_ticket_end_to_end_with_fakes(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            config, mapping = load_configuration(self.write_test_config(tmp))
+            ticket = json.loads((ROOT / "tests" / "test-ticket-f3.json").read_text())
+            ticket["request"]["udf_fields"]["reporting_manager"] = "priya.singh@sonacomstar.com"
+            h = Harness(ticket=ticket)
+            h.config, h.mapping = config, mapping
+            h.config["report"]["verify_delay_seconds"] = 0
+            f3 = {"skuId": "66b55226-6b4f-492c-910c-a3b7a3c9d993", "skuPartNumber": "SPE_F1", "capabilityStatus": "Enabled",
+                  "prepaidUnits": {"enabled": 5}, "consumedUnits": 0, "servicePlans": []}
+            h.graph.skus.append(f3)
+            h.run(STEP_ORDER[:8])  # everything except close-ticket
+            state = h.state()
+            user = h.graph.users[state["user"]["id"]]
+            self.assertEqual(user["userPrincipalName"], "onboarding.testuser@contoso.onmicrosoft.com")
+            self.assertEqual([l["skuId"] for l in user["assignedLicenses"]], [f3["skuId"]])
+            self.assertEqual(state["report"]["outcome"], "SUCCESS")
+            self.assertNotIn("list_groups", h.graph.calls)  # no groups requested -> no group download
+            self.assertTrue(any("needs an interactive terminal" in w for w in state["warnings"]))  # not a tty here
+            h.close()
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_step_without_ticket_id_is_rejected(self):
+        from onboard import main
+        self.assertEqual(main(["validate"]), ConfigurationError.exit_code)
 
 
 if __name__ == "__main__":
